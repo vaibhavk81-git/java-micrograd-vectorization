@@ -24,39 +24,40 @@ class ComponentTests {
         Tensor param = Tensor.fromArray(new double[][]{{1.0, 2.0}, {3.0, 4.0}}, true);
         
         // Set gradients
-        param.grad()[0] = 0.1;
-        param.grad()[1] = 0.2;
-        param.grad()[2] = 0.3;
-        param.grad()[3] = 0.4;
+        param.setGradAt(0, 0.1);
+        param.setGradAt(1, 0.2);
+        param.setGradAt(2, 0.3);
+        param.setGradAt(3, 0.4);
         
         SGD optimizer = new SGD(0.1);
         optimizer.step(param);
         
         // Check updates: data[i] -= lr * grad[i]
-        assertEquals(1.0 - 0.1 * 0.1, param.data()[0], 1e-10);
-        assertEquals(2.0 - 0.1 * 0.2, param.data()[1], 1e-10);
-        assertEquals(3.0 - 0.1 * 0.3, param.data()[2], 1e-10);
-        assertEquals(4.0 - 0.1 * 0.4, param.data()[3], 1e-10);
+        double[] values = param.toArray();
+        assertEquals(1.0 - 0.1 * 0.1, values[0], 1e-10);
+        assertEquals(2.0 - 0.1 * 0.2, values[1], 1e-10);
+        assertEquals(3.0 - 0.1 * 0.3, values[2], 1e-10);
+        assertEquals(4.0 - 0.1 * 0.4, values[3], 1e-10);
     }
     
     @Test
     void testSGDStepEquivalence() {
         Tensor param = Tensor.fromArray(new double[][]{{1.0, 2.0}}, true);
-        param.grad()[0] = 0.5;
-        param.grad()[1] = 1.0;
+        param.setGradAt(0, 0.5);
+        param.setGradAt(1, 1.0);
         
         double lr = 0.01;
         
         // Manual update
-        double expected0 = param.data()[0] - lr * param.grad()[0];
-        double expected1 = param.data()[1] - lr * param.grad()[1];
+        double expected0 = param.get(0, 0) - lr * param.gradAt(0);
+        double expected1 = param.get(0, 1) - lr * param.gradAt(1);
         
         // SGD update
         SGD optimizer = new SGD(lr);
         optimizer.step(param);
         
-        assertEquals(expected0, param.data()[0], 1e-10);
-        assertEquals(expected1, param.data()[1], 1e-10);
+        assertEquals(expected0, param.get(0, 0), 1e-10);
+        assertEquals(expected1, param.get(0, 1), 1e-10);
     }
     
     // ========== VectorMLP Tests ==========
@@ -105,9 +106,7 @@ class ComponentTests {
         
         // Set some gradients
         for (Tensor param : model.parameters()) {
-            for (int i = 0; i < param.grad().length; i++) {
-                param.grad()[i] = 1.0;
-            }
+            param.fillGrad(1.0);
         }
         
         // Zero gradients
@@ -115,8 +114,9 @@ class ComponentTests {
         
         // Check all gradients are zero
         for (Tensor param : model.parameters()) {
-            for (int i = 0; i < param.grad().length; i++) {
-                assertEquals(0.0, param.grad()[i], 1e-10);
+            double[] grads = param.gradToArray();
+            for (double g : grads) {
+                assertEquals(0.0, g, 1e-10);
             }
         }
     }
@@ -132,14 +132,33 @@ class ComponentTests {
     }
     
     @Test
-    void testPrecisionFP32ThrowsException() {
-        UnsupportedOperationException ex = assertThrows(
-            UnsupportedOperationException.class,
-            () -> new Tensor(2, 3, Precision.FP32, false)
-        );
-        
-        assertTrue(ex.getMessage().contains("FP32"));
-        assertTrue(ex.getMessage().contains("not yet implemented"));
+    void testPrecisionFP32Constructs() {
+        Tensor t = new Tensor(2, 3, Precision.FP32, false);
+        assertEquals(Precision.FP32, t.precision());
+        assertEquals(2, t.rows());
+        assertEquals(3, t.cols());
+    }
+
+    @Test
+    void testSetDefaultPrecisionInfluencesNewTensor() {
+        Precision original = Tensor.getDefaultPrecision();
+        try {
+            Tensor.setDefaultPrecision(Precision.FP32);
+            Tensor t = new Tensor(1, 2);
+            assertEquals(Precision.FP32, t.precision());
+        } finally {
+            Tensor.setDefaultPrecision(original);
+        }
+    }
+
+    @Test
+    void testTensorToPrecisionConversion() {
+        Tensor t = Tensor.full(1, 3, 42.0, true);
+        Tensor converted = t.to(Precision.FP32);
+        assertEquals(Precision.FP32, converted.precision());
+        assertEquals(t.device(), converted.device());
+        assertNotSame(t, converted);
+        assertArrayEquals(t.toArray(), converted.toArray(), 1e-6);
     }
     
     // ========== Profiler Tests ==========

@@ -40,8 +40,8 @@ public final class Losses {
         // Compute margin: 1 - y * score
         Tensor margin = TensorOps.mul(y, score);  // y * score
         
-        // Create tensor of ones for subtraction
-        Tensor ones = Tensor.ones(margin.rows(), margin.cols(), margin.requiresGrad());
+        // Create constant tensor of ones for subtraction (no gradients needed)
+        Tensor ones = Tensor.ones(margin.rows(), margin.cols(), false);
         
         // margin = 1 - (y * score)
         margin = TensorOps.add(ones, negate(margin));
@@ -71,9 +71,8 @@ public final class Losses {
                 }
             }
             
-            // Scale by lambda
-            Tensor lambdaTensor = Tensor.ones(1, 1, l2Penalty.requiresGrad());
-            lambdaTensor.data()[0] = lambda;
+            // Scale by lambda (constant scalar, no gradients needed)
+            Tensor lambdaTensor = Tensor.full(1, 1, lambda, false);
             l2Penalty = TensorOps.mul(lambdaTensor, l2Penalty);
         }
         
@@ -87,13 +86,10 @@ public final class Losses {
     
     /**
      * Helper to negate a tensor (multiply by -1).
+     * Uses a constant tensor (no gradients) to avoid unnecessary gradient allocations.
      */
     private static Tensor negate(Tensor x) {
-        Tensor negOne = Tensor.ones(x.rows(), x.cols(), x.requiresGrad());
-        negOne.data()[0] = -1.0;
-        for (int i = 1; i < negOne.data().length; i++) {
-            negOne.data()[i] = -1.0;
-        }
+        Tensor negOne = Tensor.full(x.rows(), x.cols(), -1.0, false);
         return TensorOps.mul(negOne, x);
     }
 }

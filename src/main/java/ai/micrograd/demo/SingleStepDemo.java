@@ -78,7 +78,7 @@ public final class SingleStepDemo {
         double l2 = 0.01;
         Tensor loss = Losses.hingeLossWithL2(score, y, model.weights(), l2);
         System.out.println("Loss shape: (" + loss.rows() + ", " + loss.cols() + ")");
-        System.out.printf("Loss value: %.6f%n", loss.data()[0]);
+        System.out.printf("Loss value: %.6f%n", loss.item());
         
         // Backward pass
         System.out.println("\n--- Backward Pass ---");
@@ -93,10 +93,11 @@ public final class SingleStepDemo {
             System.out.println("\n" + label + " shape: (" + param.rows() + ", " + param.cols() + ")");
             
             // Show first few gradient values
-            int showCount = Math.min(6, param.grad().length);
+            double[] grads = param.gradToArray();
+            int showCount = Math.min(6, grads.length);
             System.out.print("First " + showCount + " gradient values: [");
             for (int i = 0; i < showCount; i++) {
-                System.out.printf("%.4f", param.grad()[i]);
+                System.out.printf("%.4f", grads[i]);
                 if (i < showCount - 1) System.out.print(", ");
             }
             System.out.println("]");

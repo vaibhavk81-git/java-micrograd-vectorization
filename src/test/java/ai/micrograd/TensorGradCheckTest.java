@@ -32,13 +32,13 @@ class TensorGradCheckTest {
         checkGradient(a, () -> {
             Tensor c2 = TensorOps.add(a, b);
             Tensor l2 = TensorOps.sum(c2, 0);
-            return TensorOps.sum(l2, 1).data()[0];
+            return TensorOps.sum(l2, 1).item();
         });
         
         checkGradient(b, () -> {
             Tensor c2 = TensorOps.add(a, b);
             Tensor l2 = TensorOps.sum(c2, 0);
-            return TensorOps.sum(l2, 1).data()[0];
+            return TensorOps.sum(l2, 1).item();
         });
     }
     
@@ -56,13 +56,13 @@ class TensorGradCheckTest {
         checkGradient(a, () -> {
             Tensor c2 = TensorOps.mul(a, b);
             Tensor l2 = TensorOps.sum(c2, 0);
-            return TensorOps.sum(l2, 1).data()[0];
+            return TensorOps.sum(l2, 1).item();
         });
         
         checkGradient(b, () -> {
             Tensor c2 = TensorOps.mul(a, b);
             Tensor l2 = TensorOps.sum(c2, 0);
-            return TensorOps.sum(l2, 1).data()[0];
+            return TensorOps.sum(l2, 1).item();
         });
     }
     
@@ -79,7 +79,7 @@ class TensorGradCheckTest {
         checkGradient(x, () -> {
             Tensor y2 = TensorOps.tanh(x);
             Tensor l2 = TensorOps.sum(y2, 0);
-            return TensorOps.sum(l2, 1).data()[0];
+            return TensorOps.sum(l2, 1).item();
         });
     }
     
@@ -96,7 +96,7 @@ class TensorGradCheckTest {
         checkGradient(x, () -> {
             Tensor y2 = TensorOps.relu(x);
             Tensor l2 = TensorOps.sum(y2, 0);
-            return TensorOps.sum(l2, 1).data()[0];
+            return TensorOps.sum(l2, 1).item();
         });
     }
     
@@ -114,13 +114,13 @@ class TensorGradCheckTest {
         checkGradient(a, () -> {
             Tensor c2 = TensorOps.matmul(a, b);
             Tensor l2 = TensorOps.sum(c2, 0);
-            return TensorOps.sum(l2, 1).data()[0];
+            return TensorOps.sum(l2, 1).item();
         });
         
         checkGradient(b, () -> {
             Tensor c2 = TensorOps.matmul(a, b);
             Tensor l2 = TensorOps.sum(c2, 0);
-            return TensorOps.sum(l2, 1).data()[0];
+            return TensorOps.sum(l2, 1).item();
         });
     }
     
@@ -135,7 +135,7 @@ class TensorGradCheckTest {
         
         checkGradient(x, () -> {
             Tensor y2 = TensorOps.sum(x, 0);
-            return TensorOps.sum(y2, 1).data()[0];
+            return TensorOps.sum(y2, 1).item();
         });
     }
     
@@ -150,7 +150,7 @@ class TensorGradCheckTest {
         
         checkGradient(x, () -> {
             Tensor y2 = TensorOps.sum(x, 1);
-            return TensorOps.sum(y2, 0).data()[0];
+            return TensorOps.sum(y2, 0).item();
         });
     }
     
@@ -165,7 +165,7 @@ class TensorGradCheckTest {
         
         checkGradient(x, () -> {
             Tensor y2 = TensorOps.mean(x, 0);
-            return TensorOps.sum(y2, 1).data()[0];
+            return TensorOps.sum(y2, 1).item();
         });
     }
     
@@ -180,7 +180,7 @@ class TensorGradCheckTest {
         
         checkGradient(x, () -> {
             Tensor y2 = TensorOps.mean(x, 1);
-            return TensorOps.sum(y2, 0).data()[0];
+            return TensorOps.sum(y2, 0).item();
         });
     }
     
@@ -191,23 +191,23 @@ class TensorGradCheckTest {
      * @param lossFunc function that computes scalar loss
      */
     private void checkGradient(Tensor tensor, java.util.function.Supplier<Double> lossFunc) {
-        double[] data = tensor.data();
-        double[] grad = tensor.grad();
+        int elements = tensor.elements();
         
-        for (int i = 0; i < data.length; i++) {
-            // Compute numerical gradient using central difference
-            double original = data[i];
+        for (int i = 0; i < elements; i++) {
+            int row = i / tensor.cols();
+            int col = i % tensor.cols();
+            double original = tensor.get(row, col);
             
-            data[i] = original + EPSILON;
+            tensor.set(row, col, original + EPSILON);
             double lossPlus = lossFunc.get();
             
-            data[i] = original - EPSILON;
+            tensor.set(row, col, original - EPSILON);
             double lossMinus = lossFunc.get();
             
-            data[i] = original;  // Restore
+            tensor.set(row, col, original);  // Restore
             
             double numericalGrad = (lossPlus - lossMinus) / (2 * EPSILON);
-            double analyticalGrad = grad[i];
+            double analyticalGrad = tensor.gradAt(i);
             
             // Compute relative error
             double relError = Math.abs(numericalGrad - analyticalGrad) / 

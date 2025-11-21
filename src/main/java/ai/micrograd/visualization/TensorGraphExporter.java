@@ -139,26 +139,29 @@ public final class TensorGraphExporter {
         label.append("shape: (").append(node.rows()).append(", ").append(node.cols()).append(")\\n");
         
         // Value (show first element if scalar or small)
-        if (node.rows() == 1 && node.cols() == 1) {
-            label.append(String.format("val: %.4f\\n", node.data()[0]));
-        } else if (node.data().length <= 4) {
+        if (node.isScalar()) {
+            label.append(String.format("val: %.4f\\n", node.item()));
+        } else if (node.elements() <= 4) {
+            double[] values = node.toArray();
             label.append("val: [");
-            for (int i = 0; i < node.data().length; i++) {
+            for (int i = 0; i < values.length; i++) {
                 if (i > 0) label.append(", ");
-                label.append(String.format("%.2f", node.data()[i]));
+                label.append(String.format("%.2f", values[i]));
             }
             label.append("]\\n");
         }
         
         // Gradient (show first element if scalar or small)
-        if (node.requiresGrad() && node.grad() != null) {
-            if (node.rows() == 1 && node.cols() == 1) {
-                label.append(String.format("grad: %.4f", node.grad()[0]));
-            } else if (node.grad().length <= 4) {
+        if (node.requiresGrad()) {
+            if (node.isScalar()) {
+                double[] grads = node.gradToArray();
+                label.append(String.format("grad: %.4f", grads[0]));
+            } else if (node.elements() <= 4) {
+                double[] grads = node.gradToArray();
                 label.append("grad: [");
-                for (int i = 0; i < node.grad().length; i++) {
+                for (int i = 0; i < grads.length; i++) {
                     if (i > 0) label.append(", ");
-                    label.append(String.format("%.2f", node.grad()[i]));
+                    label.append(String.format("%.2f", grads[i]));
                 }
                 label.append("]");
             }

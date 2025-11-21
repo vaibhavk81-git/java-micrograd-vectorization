@@ -219,7 +219,7 @@ class ExperimentalLearningTest {
                 optimizer.step(model.parameters());
                 model.zeroGrad();
                 
-                epochLoss += loss.data()[0];
+                epochLoss += loss.item();
                 numBatches++;
             }
             

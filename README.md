@@ -8,7 +8,9 @@ This project extends a scalar autograd engine with efficient vectorized operatio
 
 ### Core Engine
 - **Scalar Autograd**: Original `Value`-based computation graph (from foundation project)
-- **Vectorized Tensors**: 2-D tensors with flat `double[]` storage for efficiency
+- **Vectorized Tensors**: 2-D tensors with device-aware storage abstraction
+- **Multi-Precision Support**: FP64 (double) and FP32 (float) with full gradient support
+- **Backend Abstraction**: CPU backend with clean extension points for future GPU support
 - **Automatic Differentiation**: Full backpropagation with gradient accumulation
 - **Deterministic Training**: Reproducible experiments with separate RNGs for init and data
 
@@ -30,9 +32,100 @@ This project extends a scalar autograd engine with efficient vectorized operatio
 - **Deterministic Shuffling**: Reproducible data ordering per epoch
 
 ### Enhancements
-- **Precision Mode**: FP64 (FP32 stub for future GPU support)
+- **Precision Control**: FP64 and FP32 fully supported on CPU
+- **Device Management**: CPU-only today, with environment variable hooks for future GPU
 - **Profiler**: Forward/backward/step timing utilities
 - **Visualization**: Loss curves and decision boundary plots with XChart
+
+## API Overview
+
+### Tensor Creation
+
+```java
+// Default precision (FP64) and device (CPU)
+Tensor t1 = new Tensor(2, 3, false);
+
+// Explicit precision
+Tensor t2 = new Tensor(2, 3, Precision.FP32, false);
+
+// Factory methods
+Tensor zeros = Tensor.zeros(3, 4, true);
+Tensor ones = Tensor.ones(2, 2, Precision.FP32, false);
+Tensor rand = Tensor.rand(5, 5, rng, -1.0, 1.0, true);
+
+// From arrays
+Tensor t3 = Tensor.fromArray(new double[][]{{1, 2}, {3, 4}}, true);
+Tensor t4 = Tensor.fromArray(new double[][]{{1, 2}, {3, 4}}, Precision.FP32, true);
+
+// Template-based creation (preserves precision and device)
+Tensor zerosLike = Tensor.zerosLike(t1, false);
+Tensor onesLike = Tensor.onesLike(t1, false);
+Tensor randLike = Tensor.randLike(t1, rng, 0.0, 1.0, false);
+```
+
+### Precision Control
+
+```java
+// Set global default precision
+Tensor.setDefaultPrecision(Precision.FP32);
+
+// Query precision
+Precision p = tensor.precision();  // FP64 or FP32
+
+// All operations preserve precision
+Tensor a = Tensor.ones(2, 2, Precision.FP32, false);
+Tensor b = Tensor.ones(2, 2, Precision.FP32, false);
+Tensor c = TensorOps.add(a, b);  // c is also FP32
+```
+
+### Device Management
+
+```java
+// Query available devices
+DeviceManager dm = DeviceManager.get();
+List<DeviceType> devices = dm.availableDevices();  // [CPU]
+DeviceType defaultDev = dm.defaultDevice();  // CPU
+
+// Check for GPU warnings (future-proofing)
+Optional<String> warning = dm.gpuRequestWarning();
+warning.ifPresent(System.out::println);
+
+// Environment variables (for future GPU support)
+// MICROGRAD_DEVICE=cpu
+// MICROGRAD_ENABLE_GPU=1
+```
+
+### Tensor Operations
+
+```java
+// Element-wise
+Tensor c = TensorOps.add(a, b);
+Tensor d = TensorOps.mul(a, b);
+Tensor e = TensorOps.tanh(a);
+Tensor f = TensorOps.relu(a);
+
+// Matrix multiplication
+Tensor g = TensorOps.matmul(a, b);
+
+// Broadcast
+Tensor h = TensorOps.addRowVector(matrix, rowVec);
+
+// Reductions
+Tensor i = TensorOps.sum(a, 0);  // sum over rows
+Tensor j = TensorOps.mean(a, 1);  // mean over columns
+```
+
+### Autograd
+
+```java
+Tensor x = Tensor.fromArray(new double[][]{{1, 2}}, true);
+Tensor y = TensorOps.mul(x, x);
+Tensor loss = TensorOps.sum(y, 1);
+
+Tensor.backward(loss);
+
+double[] grad = x.gradToArray();  // [2.0, 4.0]
+```
 
 ## Quick Start
 
@@ -79,6 +172,7 @@ Output:
 --noise <double>     Dataset noise level (default: 0.2)
 --outDir <path>      Output directory (default: runs/<timestamp>/)
 --precision <FP64|FP32>  Precision mode (default: FP64)
+--device <cpu|gpu>   Device selection (default: cpu, GPU not yet implemented)
 --profile            Enable profiling (default: false)
 ```
 
@@ -122,7 +216,7 @@ ai.micrograd/
 │   └── Datasets.java
 ├── util/              # Utilities
 │   └── Profiler.java
-└── examples/          # Demo applications
+└── demo/              # Demo applications
     └── MoonsBinaryClassifier.java
 ```
 
@@ -200,17 +294,16 @@ relError = |numerical - analytical| / (|numerical| + |analytical| + 1e-8)
 Tests ensure `relError < 1e-4` for ε = 1e-5.
 
 ### Known Limitations
-1. **FP32 Not Implemented**: Precision.FP32 throws `UnsupportedOperationException`
-2. **2-D Only**: No support for higher-dimensional tensors
-3. **CPU Only**: No GPU acceleration
-4. **Test Accuracy**: Pipeline test has relaxed threshold due to overfitting on small dataset
+1. **2-D Only**: No support for higher-dimensional tensors
+2. **CPU Only**: No GPU acceleration (architecture is GPU-ready)
+3. **Test Accuracy**: Pipeline test has relaxed threshold due to overfitting on small dataset
 
 ### Future Enhancements
-- FP32 support for performance
-- GPU acceleration (CUDA/OpenCL)
+- GPU acceleration (CUDA/OpenCL) - backend abstraction is ready
 - Additional optimizers (Adam, RMSprop)
 - Convolutional layers
 - Higher-dimensional tensors
+- Mixed-precision training
 
 ## Testing
 
@@ -219,6 +312,7 @@ Tests ensure `relError < 1e-4` for ε = 1e-5.
 - **TensorGradCheckTest**: Numerical gradient verification
 - **MoonsPipelineTest**: End-to-end training validation
 - **ComponentTests**: SGD, VectorMLP, Precision, Profiler
+- **PrecisionTest**: FP32/FP64 operations and gradient correctness
 
 ### Run Specific Tests
 ```bash
@@ -261,6 +355,8 @@ Typical training time (M1 Mac, Java 21):
 - Profiling overhead: ~10-15%
 
 ## License
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
 This project is for educational purposes, inspired by Andrej Karpathy's micrograd.
 

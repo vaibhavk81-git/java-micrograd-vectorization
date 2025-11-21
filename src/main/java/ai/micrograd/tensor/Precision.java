@@ -11,15 +11,28 @@ package ai.micrograd.tensor;
 public enum Precision {
     /**
      * 64-bit floating point (double precision).
-     * Currently the only fully supported mode.
      */
-    FP64,
+    FP64(64, "float64"),
     
     /**
      * 32-bit floating point (single precision).
-     * Currently not implemented - throws UnsupportedOperationException.
-     * Reserved for future GPU/performance optimizations.
      */
-    FP32
+    FP32(32, "float32");
+
+    private final int bits;
+    private final String displayName;
+
+    Precision(int bits, String displayName) {
+        this.bits = bits;
+        this.displayName = displayName;
+    }
+
+    public int bits() {
+        return bits;
+    }
+
+    public String displayName() {
+        return displayName;
+    }
 }
 

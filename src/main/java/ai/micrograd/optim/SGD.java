@@ -1,6 +1,7 @@
 package ai.micrograd.optim;
 
 import ai.micrograd.tensor.Tensor;
+import ai.micrograd.tensor.TensorRuntime;
 import java.util.List;
 
 /**
@@ -46,12 +47,7 @@ public final class SGD {
             throw new IllegalStateException("Cannot step on tensor without gradients");
         }
         
-        double[] data = param.data();
-        double[] grad = param.grad();
-        
-        for (int i = 0; i < data.length; i++) {
-            data[i] -= lr * grad[i];
-        }
+        TensorRuntime.backendFor(param).sgdStep(param, lr);
     }
     
     /**

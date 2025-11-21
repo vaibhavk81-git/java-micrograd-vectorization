@@ -4,6 +4,8 @@ import ai.micrograd.data.Datasets;
 import ai.micrograd.nn.Losses;
 import ai.micrograd.nn.VectorMLP;
 import ai.micrograd.optim.SGD;
+import ai.micrograd.tensor.DeviceManager;
+import ai.micrograd.tensor.DeviceType;
 import ai.micrograd.tensor.Precision;
 import ai.micrograd.tensor.Tensor;
 import ai.micrograd.util.Profiler;
@@ -76,6 +78,9 @@ public class MoonsBinaryClassifier implements Callable<Integer> {
     @Option(names = {"--precision"}, description = "Precision mode: FP64 or FP32 (default: ${DEFAULT-VALUE})")
     private Precision precision = Precision.FP64;
     
+    @Option(names = {"--device"}, description = "Device type (cpu). GPU will be enabled once available.")
+    private String deviceFlag = DeviceManager.get().defaultDevice().cliValue();
+    
     @Option(names = {"--profile"}, description = "Enable profiling (default: ${DEFAULT-VALUE})")
     private boolean profile = false;
     
@@ -99,6 +104,24 @@ public class MoonsBinaryClassifier implements Callable<Integer> {
             System.err.println("Error: depth must be >= 1, got: " + depth);
             return 1;
         }
+        
+        DeviceManager deviceManager = DeviceManager.get();
+        DeviceType selectedDevice;
+        try {
+            selectedDevice = DeviceType.fromString(deviceFlag);
+        } catch (IllegalArgumentException ex) {
+            System.err.println("Error: unknown device '" + deviceFlag + "'. Valid options: " +
+                formatDevices(deviceManager.availableDevices()));
+            return 1;
+        }
+        if (!deviceManager.isAvailable(selectedDevice)) {
+            System.err.println("Error: device '" + deviceFlag + "' is not available. Supported: " +
+                formatDevices(deviceManager.availableDevices()));
+            deviceManager.gpuRequestWarning().ifPresent(System.err::println);
+            return 1;
+        }
+        deviceManager.gpuRequestWarning().ifPresent(System.out::println);
+        Tensor.setDefaultPrecision(precision);
         
         // Setup output directory
         if (outDir == null) {
@@ -127,22 +150,25 @@ public class MoonsBinaryClassifier implements Callable<Integer> {
         System.out.println("Samples: " + samples);
         System.out.println("Noise: " + noise);
         System.out.println("Precision: " + precision);
+        System.out.println("Device: " + selectedDevice.cliValue());
         System.out.println("Profile: " + profile);
         
         // Generate dataset
         System.out.println("\n=== Generating Dataset ===");
         Datasets.MoonsData data = Datasets.makeMoons(samples, noise, seed);
-        System.out.println("X shape: (" + data.X().rows() + ", " + data.X().cols() + ")");
-        System.out.println("y shape: (" + data.y().rows() + ", " + data.y().cols() + ")");
+        Tensor X_data = data.X().to(selectedDevice, precision);
+        Tensor y_data = data.y().to(selectedDevice, precision);
+        System.out.println("X shape: (" + X_data.rows() + ", " + X_data.cols() + ")");
+        System.out.println("y shape: (" + y_data.rows() + ", " + y_data.cols() + ")");
         
         // Train/test split (80/20)
         int trainSize = (int) (samples * 0.8);
         int testSize = samples - trainSize;
         
-        Tensor X_train = extractRows(data.X(), 0, trainSize);
-        Tensor y_train = extractRows(data.y(), 0, trainSize);
-        Tensor X_test = extractRows(data.X(), trainSize, samples);
-        Tensor y_test = extractRows(data.y(), trainSize, samples);
+        Tensor X_train = extractRows(X_data, 0, trainSize);
+        Tensor y_train = extractRows(y_data, 0, trainSize);
+        Tensor X_test = extractRows(X_data, trainSize, samples);
+        Tensor y_test = extractRows(y_data, trainSize, samples);
         
         System.out.println("Train: " + trainSize + " samples");
         System.out.println("Test: " + testSize + " samples");
@@ -204,7 +230,7 @@ public class MoonsBinaryClassifier implements Callable<Integer> {
                         totalTimes.put(entry.getKey(), totalTimes.get(entry.getKey()) + entry.getValue());
                     }
                     
-                    epochLoss += lossHolder[0].data()[0];
+                    epochLoss += lossHolder[0].item();
                 } else {
                     Tensor score = model.forward(X_batch);
                     Tensor loss = Losses.hingeLossWithL2(score, y_batch, model.weights(), l2);
@@ -212,7 +238,7 @@ public class MoonsBinaryClassifier implements Callable<Integer> {
                     Tensor.backward(loss);
                     optimizer.step(model.parameters());
                     
-                    epochLoss += loss.data()[0];
+                    epochLoss += loss.item();
                 }
                 
                 model.zeroGrad();
@@ -343,6 +369,14 @@ public class MoonsBinaryClassifier implements Callable<Integer> {
             writer.write("\n}\n");
         }
         System.out.println("Saved: " + file.getFileName());
+    }
+
+    private String formatDevices(List<DeviceType> devices) {
+        List<String> values = new ArrayList<>();
+        for (DeviceType device : devices) {
+            values.add(device.cliValue());
+        }
+        return String.join(", ", values);
     }
 }
 

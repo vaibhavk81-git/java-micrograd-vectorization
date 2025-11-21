@@ -44,8 +44,8 @@ public final class DecisionBoundaryPlotter {
         System.setProperty("java.awt.headless", "true");
         
         // Find data bounds
-        double xMin = Double.MAX_VALUE, xMax = Double.MIN_VALUE;
-        double yMin = Double.MAX_VALUE, yMax = Double.MIN_VALUE;
+        double xMin = Double.MAX_VALUE, xMax = -Double.MAX_VALUE;
+        double yMin = Double.MAX_VALUE, yMax = -Double.MAX_VALUE;
         
         for (double[] point : xTrain) {
             xMin = Math.min(xMin, point[0]);

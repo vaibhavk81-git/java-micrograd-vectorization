@@ -54,8 +54,9 @@ public final class Datasets {
         Tensor y = new Tensor(nSamples, 1, false);
         
         // Generate outer moon (+1)
+        // Guard against division by zero for small sample counts
         for (int i = 0; i < nOuter; i++) {
-            double angle = Math.PI * i / (nOuter - 1);
+            double angle = Math.PI * i / Math.max(nOuter - 1, 1);
             double x =  Math.cos(angle);
             double yy = Math.sin(angle);
 
@@ -68,8 +69,9 @@ public final class Datasets {
         }
 
         // Generate inner moon (-1)
+        // Guard against division by zero for small sample counts
         for (int i = 0; i < nInner; i++) {
-            double angle = Math.PI * i / (nInner - 1);
+            double angle = Math.PI * i / Math.max(nInner - 1, 1);
             double x = 1.0 - Math.cos(angle);     // horizontal shift
             double yy = -Math.sin(angle) + 0.5;   // vertical flip + shift
 
