@@ -1,0 +1,43 @@
+plugins {
+    id 'java'
+    id 'application'
+    id 'jacoco'
+}
+
+group = 'ai.micrograd'
+version = '1.0.0'
+
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(21)
+    }
+}
+
+repositories {
+    mavenCentral()
+}
+
+dependencies {
+    implementation 'info.picocli:picocli:4.7.5'
+    implementation 'org.knowm.xchart:xchart:3.8.6'
+    testImplementation 'org.junit.jupiter:junit-jupiter:5.10.2'
+    runtimeOnly 'org.slf4j:slf4j-simple:2.0.13'
+}
+
+application {
+    mainClass = 'ai.micrograd.demo.Main'
+}
+
+test {
+    useJUnitPlatform()
+    maxHeapSize = '2g'
+}
+
+jacocoTestReport {
+    dependsOn test
+    reports {
+        xml.required = true
+        html.required = true
+    }
+}
+
