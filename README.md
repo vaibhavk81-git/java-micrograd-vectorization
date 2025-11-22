@@ -143,7 +143,7 @@ double[] grad = x.gradToArray();  // [2.0, 4.0]
 ./gradlew test
 ```
 
-All 34 tests should pass, validating:
+All 63 tests should pass, validating:
 - Tensor shape checking
 - Gradient correctness (central difference)
 - Component functionality (SGD, MLP, Profiler, Precision)
