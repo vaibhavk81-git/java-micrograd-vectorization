@@ -32,6 +32,23 @@ public interface TensorBackend {
     Tensor matmul(Tensor a, Tensor b);
 
     /**
+     * Reshapes input tensor to the provided dimensions (PyTorch {@code view} equivalent).
+     */
+    Tensor reshape(Tensor input, int newRows, int newCols);
+
+    /**
+     * PyTorch equivalent: {@code torch.nn.functional.embedding}.
+     * Gathers rows from {@code weight} using integer {@code indices}.
+     */
+    Tensor embedding(Tensor weight, Tensor indices);
+
+    /**
+     * PyTorch equivalent: {@code torch.nn.functional.cross_entropy}.
+     * Computes log-softmax + NLL loss in one op and returns mean loss.
+     */
+    Tensor crossEntropy(Tensor logits, Tensor targets);
+
+    /**
      * In-place SGD update (data -= lr * grad).
      */
     void sgdStep(Tensor param, double lr);

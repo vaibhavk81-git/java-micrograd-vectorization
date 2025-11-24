@@ -55,6 +55,29 @@ public final class TensorOps {
         return backendFor(a).matmul(a, b);
     }
 
+    /**
+     * PyTorch equivalent: {@code torch.nn.functional.embedding}.
+     * Returns the gathered embedding rows for the provided indices.
+     */
+    public static Tensor embedding(Tensor weight, Tensor indices) {
+        return backendFor(weight).embedding(weight, indices);
+    }
+
+    /**
+     * PyTorch equivalent: {@code torch.nn.functional.cross_entropy}.
+     * Computes log-softmax + NLL loss (mean over batch).
+     */
+    public static Tensor crossEntropy(Tensor logits, Tensor targets) {
+        return backendFor(logits).crossEntropy(logits, targets);
+    }
+
+    /**
+     * PyTorch equivalent: {@code tensor.view(newRows, newCols)}.
+     */
+    public static Tensor reshape(Tensor input, int newRows, int newCols) {
+        return backendFor(input).reshape(input, newRows, newCols);
+    }
+
     private static TensorBackend backendFor(Tensor tensor) {
         return TensorBackendRegistry.get(tensor.device());
     }

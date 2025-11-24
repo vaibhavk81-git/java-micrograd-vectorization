@@ -512,6 +512,275 @@ final class CpuBackend implements TensorBackend {
     }
 
     @Override
+    public Tensor embedding(Tensor weight, Tensor indices) {
+        // PyTorch equivalent: torch.nn.functional.embedding. See TensorMath.md#embedding
+        // Forward: gather rows from weight using integer indices
+        // Backward: scatter gradients back into the same rows (summing for repeats)
+        if (indices.rows() < 1 || indices.cols() < 1) {
+            throw new IllegalArgumentException("Indices tensor must be non-empty for embedding lookup");
+        }
+        if (weight.cols() < 1) {
+            throw new IllegalArgumentException("Embedding matrix must have >= 1 column");
+        }
+        if (weight.device() != indices.device()) {
+            throw new IllegalArgumentException("Embedding weight and indices must live on same device");
+        }
+
+        int blockCount = indices.rows() * indices.cols();
+        int embedDim = weight.cols();
+        boolean requiresGrad = weight.requiresGrad();
+        Tensor out = new Tensor(blockCount, embedDim, weight.precision(), weight.device(), requiresGrad);
+        CpuTensorStorage outStore = storageOf(out);
+        int[] gatheredIdx = new int[blockCount];
+
+        if (weight.precision() == Precision.FP64) {
+            double[] weightData = storageOf(weight).data64();
+            double[] outData = outStore.data64();
+            for (int i = 0; i < blockCount; i++) {
+                int idx = readIndex(indices, i);
+                if (idx < 0 || idx >= weight.rows()) {
+                    throw new IllegalArgumentException(
+                        String.format("Embedding index %d out of range [0, %d)", idx, weight.rows()));
+                }
+                gatheredIdx[i] = idx;
+                int weightOffset = idx * embedDim;
+                int outOffset = i * embedDim;
+                System.arraycopy(weightData, weightOffset, outData, outOffset, embedDim);
+            }
+        } else {
+            float[] weightData = storageOf(weight).data32();
+            float[] outData = outStore.data32();
+            for (int i = 0; i < blockCount; i++) {
+                int idx = readIndex(indices, i);
+                if (idx < 0 || idx >= weight.rows()) {
+                    throw new IllegalArgumentException(
+                        String.format("Embedding index %d out of range [0, %d)", idx, weight.rows()));
+                }
+                gatheredIdx[i] = idx;
+                int weightOffset = idx * embedDim;
+                int outOffset = i * embedDim;
+                System.arraycopy(weightData, weightOffset, outData, outOffset, embedDim);
+            }
+        }
+
+        if (requiresGrad) {
+            out.setParents(weight);
+            out.setOp("embedding");
+            out.setBackwardFn(() -> {
+                if (!weight.requiresGrad()) {
+                    return;
+                }
+                int weightRows = weight.rows();
+                if (weight.precision() == Precision.FP64) {
+                    double[] weightGrad = storageOf(weight).grad64();
+                    double[] outGrad = outStore.grad64();
+                    for (int i = 0; i < blockCount; i++) {
+                        int idx = gatheredIdx[i];
+                        if (idx < 0 || idx >= weightRows) {
+                            continue;
+                        }
+                        int weightOffset = idx * embedDim;
+                        int outOffset = i * embedDim;
+                        for (int d = 0; d < embedDim; d++) {
+                            weightGrad[weightOffset + d] += outGrad[outOffset + d];
+                        }
+                    }
+                } else {
+                    float[] weightGrad = storageOf(weight).grad32();
+                    float[] outGrad = outStore.grad32();
+                    for (int i = 0; i < blockCount; i++) {
+                        int idx = gatheredIdx[i];
+                        if (idx < 0 || idx >= weightRows) {
+                            continue;
+                        }
+                        int weightOffset = idx * embedDim;
+                        int outOffset = i * embedDim;
+                        for (int d = 0; d < embedDim; d++) {
+                            weightGrad[weightOffset + d] += outGrad[outOffset + d];
+                        }
+                    }
+                }
+            });
+        }
+
+        return out;
+    }
+
+    @Override
+    public Tensor crossEntropy(Tensor logits, Tensor targets) {
+        // PyTorch equivalent: torch.nn.functional.cross_entropy. See TensorMath.md#cross-entropy
+        // Forward: stable log-softmax + negative log likelihood, averaged over batch
+        // Backward: softmax(logits) - one_hot(target)
+        if (logits.rows() < 1 || logits.cols() < 1) {
+            throw new IllegalArgumentException("Logits tensor must be non-empty for cross-entropy");
+        }
+        if (targets.rows() != logits.rows() || targets.cols() != 1) {
+            throw new IllegalArgumentException(
+                "Targets must have shape (batch, 1) and match logits batch size");
+        }
+        if (logits.device() != targets.device()) {
+            throw new IllegalArgumentException("Logits and targets must be on same device");
+        }
+
+        boolean requiresGrad = logits.requiresGrad();
+        Tensor out = new Tensor(1, 1, logits.precision(), logits.device(), requiresGrad);
+        CpuTensorStorage outStore = storageOf(out);
+        int batch = logits.rows();
+        int classes = logits.cols();
+
+        if (logits.precision() == Precision.FP64) {
+            double[] logitsData = storageOf(logits).data64();
+            double[] outData = outStore.data64();
+            double[] probs = new double[logitsData.length];
+            int[] targetIdx = readTargetIndices(targets);
+
+            double lossSum = 0.0;
+            for (int i = 0; i < batch; i++) {
+                int rowOffset = i * classes;
+                double maxLogit = logitsData[rowOffset];
+                for (int j = 1; j < classes; j++) {
+                    maxLogit = Math.max(maxLogit, logitsData[rowOffset + j]);
+                }
+                double sumExp = 0.0;
+                for (int j = 0; j < classes; j++) {
+                    double exp = Math.exp(logitsData[rowOffset + j] - maxLogit);
+                    probs[rowOffset + j] = exp;
+                    sumExp += exp;
+                }
+                for (int j = 0; j < classes; j++) {
+                    probs[rowOffset + j] /= sumExp;
+                }
+                int t = targetIdx[i];
+                if (t < 0 || t >= classes) {
+                    throw new IllegalArgumentException(
+                        String.format("Target index %d out of range [0, %d)", t, classes));
+                }
+                lossSum += -Math.log(Math.max(probs[rowOffset + t], 1e-12));
+            }
+
+            double meanLoss = lossSum / batch;
+            outData[0] = meanLoss;
+
+            if (requiresGrad) {
+                out.setParents(logits);
+                out.setOp("cross_entropy");
+                out.setBackwardFn(() -> {
+                    double[] logitsGrad = storageOf(logits).grad64();
+                    double[] outGrad = outStore.grad64();
+                    double upstream = outGrad[0] / batch;
+                    for (int i = 0; i < batch; i++) {
+                        int rowOffset = i * classes;
+                        for (int j = 0; j < classes; j++) {
+                            double grad = probs[rowOffset + j];
+                            if (j == targetIdx[i]) {
+                                grad -= 1.0;
+                            }
+                            logitsGrad[rowOffset + j] += grad * upstream;
+                        }
+                    }
+                });
+            }
+        } else {
+            float[] logitsData = storageOf(logits).data32();
+            float[] outData = outStore.data32();
+            float[] probs = new float[logitsData.length];
+            int[] targetIdx = readTargetIndices(targets);
+
+            double lossSum = 0.0;
+            for (int i = 0; i < batch; i++) {
+                int rowOffset = i * classes;
+                float maxLogit = logitsData[rowOffset];
+                for (int j = 1; j < classes; j++) {
+                    maxLogit = Math.max(maxLogit, logitsData[rowOffset + j]);
+                }
+                float sumExp = 0.0f;
+                for (int j = 0; j < classes; j++) {
+                    float exp = (float) Math.exp(logitsData[rowOffset + j] - maxLogit);
+                    probs[rowOffset + j] = exp;
+                    sumExp += exp;
+                }
+                for (int j = 0; j < classes; j++) {
+                    probs[rowOffset + j] /= sumExp;
+                }
+                int t = targetIdx[i];
+                if (t < 0 || t >= classes) {
+                    throw new IllegalArgumentException(
+                        String.format("Target index %d out of range [0, %d)", t, classes));
+                }
+                lossSum += -Math.log(Math.max(probs[rowOffset + t], 1e-12f));
+            }
+
+            float meanLoss = (float) (lossSum / batch);
+            outData[0] = meanLoss;
+
+            if (requiresGrad) {
+                out.setParents(logits);
+                out.setOp("cross_entropy");
+                out.setBackwardFn(() -> {
+                    float[] logitsGrad = storageOf(logits).grad32();
+                    float[] outGrad = outStore.grad32();
+                    float upstream = outGrad[0] / batch;
+                    for (int i = 0; i < batch; i++) {
+                        int rowOffset = i * classes;
+                        for (int j = 0; j < classes; j++) {
+                            float grad = probs[rowOffset + j];
+                            if (j == targetIdx[i]) {
+                                grad -= 1.0f;
+                            }
+                            logitsGrad[rowOffset + j] += grad * upstream;
+                        }
+                    }
+                });
+            }
+        }
+
+        return out;
+    }
+
+    @Override
+    public Tensor reshape(Tensor input, int newRows, int newCols) {
+        // PyTorch equivalent: tensor.view(newRows, newCols). See TensorMath.md#reshape
+        // Forward: reinterprets the flat buffer with new shape
+        // Backward: gradient is reshaped back to original form (identity)
+        if (input.rows() * input.cols() != newRows * newCols) {
+            throw new IllegalArgumentException(
+                String.format("Cannot reshape (%d, %d) into (%d, %d)",
+                    input.rows(), input.cols(), newRows, newCols));
+        }
+
+        Tensor out = new Tensor(newRows, newCols, input.precision(), input.device(), input.requiresGrad());
+        CpuTensorStorage inStore = storageOf(input);
+        CpuTensorStorage outStore = storageOf(out);
+        if (input.precision() == Precision.FP64) {
+            double[] src = inStore.data64();
+            double[] dst = outStore.data64();
+            System.arraycopy(src, 0, dst, 0, src.length);
+        } else {
+            float[] src = inStore.data32();
+            float[] dst = outStore.data32();
+            System.arraycopy(src, 0, dst, 0, src.length);
+        }
+
+        if (input.requiresGrad()) {
+            out.setParents(input);
+            out.setOp("reshape");
+            out.setBackwardFn(() -> {
+                if (input.precision() == Precision.FP64) {
+                    double[] inGrad = inStore.grad64();
+                    double[] outGrad = outStore.grad64();
+                    accumulate(inGrad, outGrad);
+                } else {
+                    float[] inGrad = inStore.grad32();
+                    float[] outGrad = outStore.grad32();
+                    accumulate(inGrad, outGrad);
+                }
+            });
+        }
+
+        return out;
+    }
+
+    @Override
     public void sgdStep(Tensor param, double lr) {
         if (!param.requiresGrad()) {
             throw new IllegalStateException("Cannot run SGD on tensor without gradients");
@@ -609,6 +878,33 @@ final class CpuBackend implements TensorBackend {
         for (int i = 0; i < target.length; i++) {
             target[i] += source[i];
         }
+    }
+
+    private int readIndex(Tensor indices, int flatIndex) {
+        if (indices.precision() == Precision.FP64) {
+            double[] data = storageOf(indices).data64();
+            return (int) Math.round(data[flatIndex]);
+        } else {
+            float[] data = storageOf(indices).data32();
+            return Math.round(data[flatIndex]);
+        }
+    }
+
+    private int[] readTargetIndices(Tensor targets) {
+        int batch = targets.rows();
+        int[] out = new int[batch];
+        if (targets.precision() == Precision.FP64) {
+            double[] data = storageOf(targets).data64();
+            for (int i = 0; i < batch; i++) {
+                out[i] = (int) Math.round(data[i * targets.cols()]);
+            }
+        } else {
+            float[] data = storageOf(targets).data32();
+            for (int i = 0; i < batch; i++) {
+                out[i] = Math.round(data[i * targets.cols()]);
+            }
+        }
+        return out;
     }
 }
 
