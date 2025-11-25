@@ -1,5 +1,6 @@
 package ai.micrograd.demo;
 
+import ai.micrograd.checkpoint.Checkpoint;
 import ai.micrograd.data.Datasets;
 import ai.micrograd.nn.Losses;
 import ai.micrograd.nn.VectorMLP;
@@ -284,6 +285,36 @@ public class MoonsBinaryClassifier implements Callable<Integer> {
         // Save metrics
         saveMetrics(outPath.resolve("metrics.json"), finalTrainAcc, finalTestAcc, 
                     lossHistory.get(lossHistory.size() - 1), totalTimes);
+        
+        // Save checkpoint with model weights
+        try {
+            Map<String, Object> hyperparams = new HashMap<>();
+            hyperparams.put("hidden", hidden);
+            hyperparams.put("depth", depth);
+            hyperparams.put("epochs", epochs);
+            hyperparams.put("lr", lr);
+            hyperparams.put("batch_size", batchSize);
+            hyperparams.put("seed", seed);
+            hyperparams.put("l2", l2);
+            hyperparams.put("samples", samples);
+            hyperparams.put("noise", noise);
+            hyperparams.put("precision", precision.name());
+            hyperparams.put("activation", "tanh");  // Model uses tanh (hardcoded in VectorMLP creation)
+            
+            Checkpoint checkpoint = new Checkpoint.Builder()
+                .setModelWeights(model.parameters())
+                .setHyperparameters(hyperparams)
+                .setEpoch(epochs - 1)  // Last epoch (0-indexed)
+                .setTrainLoss(lossHistory.get(lossHistory.size() - 1))
+                .setTestLoss(lossHistory.get(lossHistory.size() - 1))  // Using same for simplicity
+                .setTrainAccuracy(finalTrainAcc)
+                .setTestAccuracy(finalTestAcc)
+                .build();
+            
+            checkpoint.save(outPath.resolve("checkpoint.json"));
+        } catch (IOException e) {
+            System.err.println("Failed to save checkpoint: " + e.getMessage());
+        }
         
         System.out.println("\nTraining complete!");
         return 0;
